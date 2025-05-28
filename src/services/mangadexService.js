@@ -5,11 +5,12 @@ const mangadexApi = axios.create({
 });
 
 // --- Bagian Cache ---
-const cache = new Map(); // Gunakan Map untuk menyimpan cache
-const CACHE_TTL_MS = 5 * 60 * 1000; // Cache Time-To-Live: 5 menit (dalam milidetik)
+const cache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 menit
 // --- Akhir Bagian Cache ---
 
 const searchManga = async (params = {}) => {
+  // ... (kode searchManga tetap sama seperti di Canvas sebelumnya) ...
   try {
     const defaultParams = {
       limit: params.limit || 20,
@@ -19,7 +20,6 @@ const searchManga = async (params = {}) => {
     const requestParams = { ...defaultParams, ...params };
     if(params.limit === undefined) requestParams.limit = defaultParams.limit;
 
-    // Log untuk debugging jika ada parameter ids[]
     if (requestParams['ids[]']) {
         console.log("DEBUG [mangadexService.searchManga]: Fetching manga by IDs:", requestParams['ids[]']);
     }
@@ -30,13 +30,11 @@ const searchManga = async (params = {}) => {
         const coverArt = manga.relationships.find(rel => rel.type === 'cover_art');
         const author = manga.relationships.find(rel => rel.type === 'author');
         const artist = manga.relationships.find(rel => rel.type === 'artist');
-
         const coverFileName = coverArt ? coverArt.attributes.fileName : 'no-cover.jpg';
         let coverUrl = `https://placehold.co/256x362/222/fff?text=No+Cover`;
         if (manga.id && coverFileName !== 'no-cover.jpg') {
             coverUrl = `https://uploads.mangadex.org/covers/${manga.id}/${coverFileName}.256.jpg`;
         }
-
         return {
             id: manga.id,
             title: manga.attributes.title.en || Object.values(manga.attributes.title)[0] || 'N/A',
@@ -50,14 +48,7 @@ const searchManga = async (params = {}) => {
             latestUploadedChapter: manga.attributes.latestUploadedChapter,
         };
     });
-
-    return {
-        results: formattedData,
-        limit: response.data.limit,
-        offset: response.data.offset,
-        total: response.data.total,
-    };
-
+    return { results: formattedData, limit: response.data.limit, offset: response.data.offset, total: response.data.total };
   } catch (error) {
     console.error('Error fetching manga from MangaDex:', error.response ? error.response.data : error.message);
     throw new Error('Gagal mengambil data manga dari MangaDex.');
@@ -67,12 +58,10 @@ const searchManga = async (params = {}) => {
 const getLatestUpdates = async (limit = 20, offset = 0) => {
   const cacheKey = `latestManga_limit${limit}_offset${offset}`;
   const cachedData = cache.get(cacheKey);
-
   if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TTL_MS)) {
     console.log(`>>> Mengambil '${cacheKey}' dari cache`);
     return cachedData.data;
   }
-
   console.log(`>>> Mengambil '${cacheKey}' dari MangaDex API (cache miss atau expired)`);
   const data = await searchManga({ 'order[latestUploadedChapter]': 'desc', limit, offset });
   cache.set(cacheKey, { data: data, timestamp: Date.now() });
@@ -82,12 +71,10 @@ const getLatestUpdates = async (limit = 20, offset = 0) => {
 const getPopularManga = async (limit = 20, offset = 0) => {
   const cacheKey = `popularManga_limit${limit}_offset${offset}`;
   const cachedData = cache.get(cacheKey);
-
   if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TTL_MS)) {
     console.log(`>>> Mengambil '${cacheKey}' dari cache`);
     return cachedData.data;
   }
-
   console.log(`>>> Mengambil '${cacheKey}' dari MangaDex API (cache miss atau expired)`);
   const data = await searchManga({ 'order[followedCount]': 'desc', limit, offset });
   cache.set(cacheKey, { data: data, timestamp: Date.now() });
@@ -95,22 +82,16 @@ const getPopularManga = async (limit = 20, offset = 0) => {
 };
 
 const getGenres = async () => {
-  const cacheKey = 'genresList'; // Genre biasanya tidak berubah terlalu sering
+  const cacheKey = 'genresList';
   const cachedData = cache.get(cacheKey);
-
-  if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TTL_MS * 12)) { // Cache genre lebih lama, misal 1 jam
+  if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TTL_MS * 12)) {
     console.log(`>>> Mengambil '${cacheKey}' dari cache`);
     return cachedData.data;
   }
-
   console.log(`>>> Mengambil '${cacheKey}' dari MangaDex API (cache miss atau expired)`);
   try {
     const response = await mangadexApi.get('/manga/tag');
-    const data = response.data.data.map(tag => ({
-        id: tag.id,
-        name: tag.attributes.name.en,
-        group: tag.attributes.group,
-    })).filter(tag => tag.name);
+    const data = response.data.data.map(tag => ({ id: tag.id, name: tag.attributes.name.en, group: tag.attributes.group })).filter(tag => tag.name);
     cache.set(cacheKey, { data: data, timestamp: Date.now() });
     return data;
   } catch (error) {
@@ -120,22 +101,29 @@ const getGenres = async () => {
 };
 
 const getMangaFeed = async (mangaId, params = {}) => {
-  // Caching untuk feed bisa lebih kompleks karena parameternya banyak
-  // Untuk sekarang, kita biarkan tanpa cache, atau Anda bisa membuat cacheKey yang lebih canggih
+  console.log(`[mangadexService.getMangaFeed] DITERIMA - Manga ID: ${mangaId}, Params Asli:`, JSON.stringify(params)); // <-- Log Awal Service
   try {
     const defaultParams = {
-      limit: params.limit || 500,
-      offset: params.offset || 0,
       'translatedLanguage[]': ['id', 'en'],
       'order[volume]': 'asc',
       'order[chapter]': 'asc',
       'includes[]': ['scanlation_group'],
+      limit: 500, // Default limit yang tinggi untuk feed
+      offset: 0,   // Default offset
     };
-    const requestParams = { ...defaultParams, ...params };
-    if(params.limit === undefined) requestParams.limit = defaultParams.limit;
-    if(params.offset === undefined) requestParams.offset = defaultParams.offset;
+    // Gabungkan params dari controller, prioritaskan params dari controller
+    const requestParams = { 
+        ...defaultParams, 
+        ...params 
+    };
+    // Pastikan limit dan offset yang valid jika dikirim dari controller
+    if (params.limit !== undefined) requestParams.limit = Number(params.limit) || defaultParams.limit;
+    if (params.offset !== undefined) requestParams.offset = Number(params.offset) || defaultParams.offset;
 
+
+    console.log(`[mangadexService.getMangaFeed] MEMANGGIL MangaDex API /manga/${mangaId}/feed dengan requestParams:`, JSON.stringify(requestParams)); // <-- Log Sebelum Axios
     const response = await mangadexApi.get(`/manga/${mangaId}/feed`, { params: requestParams });
+    console.log(`[mangadexService.getMangaFeed] BERHASIL dapat response dari MangaDex API, Status: ${response.status}, Jumlah data: ${response.data.data.length}`); // <-- Log Setelah Axios
 
     return response.data.data.map(chapter => {
         const scanGroup = chapter.relationships.find(rel => rel.type === 'scanlation_group');
@@ -151,32 +139,30 @@ const getMangaFeed = async (mangaId, params = {}) => {
         };
     });
   } catch (error) {
-    console.error(`Error fetching feed for manga ${mangaId}:`, error.message);
-    throw new Error('Gagal mengambil daftar chapter.');
+    // Ini log yang penting jika panggilan Axios gagal
+    const errorDetails = error.isAxiosError && error.response ? error.response.data : error.message;
+    console.error(`[mangadexService.getMangaFeed] ERROR saat fetch dari MangaDex - Manga ID: ${mangaId}:`, errorDetails);
+    console.error(`[mangadexService.getMangaFeed] ERROR STACK:`, error.stack);
+    throw new Error('Gagal mengambil daftar chapter.'); // Error ini yang akan dikirim ke controller
   }
 };
 
 const getChapterPages = async (chapterId) => {
-  // Data halaman chapter biasanya unik per request dan tidak ideal untuk di-cache lama
-  // karena URL dari /at-home/server bisa berubah.
+  // ... (kode getChapterPages tetap sama seperti di Canvas sebelumnya) ...
   try {
+    console.log(`[mangadexService.getChapterPages] Requesting pages for chapterId: ${chapterId}`);
     const serverResponse = await mangadexApi.get(`/at-home/server/${chapterId}`);
+    console.log(`[mangadexService.getChapterPages] Got server response for chapterId: ${chapterId}`);
     const { baseUrl, chapter } = serverResponse.data;
     const { hash, data, dataSaver } = chapter;
-
     const pages = data.map(pageFile => `${baseUrl}/data/${hash}/${pageFile}`);
     const pagesSaver = dataSaver.map(pageFile => `${baseUrl}/data-saver/${hash}/${pageFile}`);
-
-    return {
-        id: chapterId,
-        baseUrl: baseUrl,
-        hash: hash,
-        pages: pages,
-        pagesSaver: pagesSaver,
-    };
+    return { id: chapterId, baseUrl, hash, pages, pagesSaver };
   } catch (error) {
-       console.error(`Error fetching pages for chapter ${chapterId}:`, error.message);
-       throw new Error('Gagal mengambil halaman chapter.');
+     const errorDetails = error.isAxiosError && error.response ? error.response.data : error.message;
+     console.error(`[mangadexService.getChapterPages] Error fetching pages for chapter ${chapterId}:`, errorDetails);
+     console.error(`[mangadexService.getChapterPages] ERROR STACK:`, error.stack);
+     throw new Error('Gagal mengambil halaman chapter.');
   }
 };
 
