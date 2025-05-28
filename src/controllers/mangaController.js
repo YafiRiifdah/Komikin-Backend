@@ -1,7 +1,6 @@
 const mangadexService = require('../services/mangadexService');
 
 const getLatestManga = async (req, res, next) => {
-  // ... (kode getLatestManga tetap sama seperti di Canvas sebelumnya) ...
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 20;
@@ -14,7 +13,6 @@ const getLatestManga = async (req, res, next) => {
 };
 
 const getPopularManga = async (req, res, next) => {
-  // ... (kode getPopularManga tetap sama seperti di Canvas sebelumnya) ...
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 20;
@@ -27,7 +25,6 @@ const getPopularManga = async (req, res, next) => {
 };
 
 const searchMangaByTitle = async (req, res, next) => {
-    // ... (kode searchMangaByTitle tetap sama seperti di Canvas sebelumnya) ...
     try {
         const { title } = req.query;
         const page = parseInt(req.query.page, 10) || 1;
@@ -42,7 +39,6 @@ const searchMangaByTitle = async (req, res, next) => {
 };
 
 const getGenresList = async (req, res, next) => {
-    // ... (kode getGenresList tetap sama seperti di Canvas sebelumnya) ...
     try {
         const genres = await mangadexService.getGenres();
         res.json({ message: "Daftar genre berhasil diambil.", data: genres });
@@ -50,7 +46,6 @@ const getGenresList = async (req, res, next) => {
 };
 
 const searchMangaByGenre = async (req, res, next) => {
-    // ... (kode searchMangaByGenre tetap sama seperti di Canvas sebelumnya) ...
     try {
         const { genreIds } = req.query;
         const page = parseInt(req.query.page, 10) || 1;
@@ -65,28 +60,33 @@ const searchMangaByGenre = async (req, res, next) => {
 };
 
 const getMangaFeed = async (req, res, next) => {
-    console.log(`[mangaController.getMangaFeed] DITERIMA - Manga ID: ${req.params.mangaId}, Query:`, JSON.stringify(req.query)); // <-- Log Awal
+    console.log(`[mangaController.getMangaFeed] DITERIMA - Manga ID: ${req.params.mangaId}, Query:`, JSON.stringify(req.query));
     try {
         const { mangaId } = req.params;
-        const limit = parseInt(req.query.limit) || 500; // Default disesuaikan dengan service
-        const offset = parseInt(req.query.offset) || 0;
+        // Ambil limit dan offset dari query, jika tidak ada, biarkan undefined agar service menggunakan defaultnya
+        const limit = req.query.limit ? parseInt(req.query.limit) : undefined;
+        const offset = req.query.offset ? parseInt(req.query.offset) : undefined;
         const { lang } = req.query;
 
-        const params = { limit, offset };
+        const params = {};
+        if (limit !== undefined) params.limit = limit;
+        if (offset !== undefined) params.offset = offset;
         if (lang) params['translatedLanguage[]'] = lang.split(',');
 
-        console.log(`[mangaController.getMangaFeed] MEMANGGIL service.getMangaFeed untuk mangaId: ${mangaId} dengan params:`, JSON.stringify(params)); // <-- Log Sebelum Panggil Service
+        console.log(`[mangaController.getMangaFeed] MEMANGGIL service.getMangaFeed untuk mangaId: ${mangaId} dengan params:`, JSON.stringify(params));
         const feedData = await mangadexService.getMangaFeed(mangaId, params);
-        console.log(`[mangaController.getMangaFeed] BERHASIL dapat data dari service, jumlah chapter: ${feedData.length}`); // <-- Log Setelah Panggil Service
+        console.log(`[mangaController.getMangaFeed] BERHASIL dapat data dari service, jumlah chapter: ${feedData.length}`);
 
         res.json({
             message: "Daftar chapter berhasil diambil.",
             data: feedData,
+            // Jika service.getMangaFeed diubah untuk mengembalikan total/limit/offset dari MangaDex,
+            // Anda bisa membangun objek paginasi di sini.
         });
     } catch (error) {
-        console.error(`[mangaController.getMangaFeed] ERROR Controller:`, error.message); // <-- Log Error di Controller
+        console.error(`[mangaController.getMangaFeed] ERROR Controller:`, error.message);
         console.error(`[mangaController.getMangaFeed] ERROR STACK Controller:`, error.stack);
-        next(error); // Lempar ke errorHandler utama
+        next(error);
     }
 };
 

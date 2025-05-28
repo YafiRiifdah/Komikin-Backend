@@ -5,12 +5,11 @@ const mangadexApi = axios.create({
 });
 
 // --- Bagian Cache ---
-const cache = new Map();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 menit
+const cache = new Map(); // Gunakan Map untuk menyimpan cache
+const CACHE_TTL_MS = 5 * 60 * 1000; // Cache Time-To-Live: 5 menit (dalam milidetik)
 // --- Akhir Bagian Cache ---
 
 const searchManga = async (params = {}) => {
-  // ... (kode searchManga tetap sama seperti di Canvas sebelumnya) ...
   try {
     const defaultParams = {
       limit: params.limit || 20,
@@ -84,7 +83,7 @@ const getPopularManga = async (limit = 20, offset = 0) => {
 const getGenres = async () => {
   const cacheKey = 'genresList';
   const cachedData = cache.get(cacheKey);
-  if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TTL_MS * 12)) {
+  if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TTL_MS * 12)) { // Cache genre 1 jam
     console.log(`>>> Mengambil '${cacheKey}' dari cache`);
     return cachedData.data;
   }
@@ -101,29 +100,47 @@ const getGenres = async () => {
 };
 
 const getMangaFeed = async (mangaId, params = {}) => {
-  console.log(`[mangadexService.getMangaFeed] DITERIMA - Manga ID: ${mangaId}, Params Asli:`, JSON.stringify(params)); // <-- Log Awal Service
+  console.log(`[mangadexService.getMangaFeed] DITERIMA - Manga ID: ${mangaId}, Params Asli:`, JSON.stringify(params));
   try {
     const defaultParams = {
       'translatedLanguage[]': ['id', 'en'],
       'order[volume]': 'asc',
       'order[chapter]': 'asc',
       'includes[]': ['scanlation_group'],
-      limit: 500, // Default limit yang tinggi untuk feed
-      offset: 0,   // Default offset
+      // Tidak ada limit default di sini, biarkan MangaDex yang menentukan atau params dari controller
+      offset: 0,
     };
-    // Gabungkan params dari controller, prioritaskan params dari controller
+
+    // Tentukan limit efektif, prioritaskan dari params, lalu default ke 500 jika tidak ada
+    let effectiveLimit = params.limit !== undefined ? Number(params.limit) : 500;
+    
+    // Batasi limit maksimal ke 500
+    if (effectiveLimit > 500) {
+        console.warn(`[mangadexService.getMangaFeed] Parameter limit (${effectiveLimit}) melebihi batas 500. Dibatasi menjadi 500.`);
+        effectiveLimit = 500;
+    }
+    // Pastikan limit adalah angka positif
+    if (isNaN(effectiveLimit) || effectiveLimit <= 0) {
+        console.warn(`[mangadexService.getMangaFeed] Parameter limit tidak valid (${params.limit}). Menggunakan default 10.`);
+        effectiveLimit = 10; // Atau nilai default lain yang aman jika input tidak valid
+    }
+
     const requestParams = { 
         ...defaultParams, 
-        ...params 
+        ...params, // Params dari controller bisa meng-override defaultParams
+        limit: effectiveLimit, // Gunakan effectiveLimit yang sudah divalidasi
     };
-    // Pastikan limit dan offset yang valid jika dikirim dari controller
-    if (params.limit !== undefined) requestParams.limit = Number(params.limit) || defaultParams.limit;
-    if (params.offset !== undefined) requestParams.offset = Number(params.offset) || defaultParams.offset;
+     // Pastikan offset valid jika dikirim dari controller
+    if (params.offset !== undefined) {
+        requestParams.offset = Number(params.offset) || 0;
+    } else {
+        requestParams.offset = defaultParams.offset; // Gunakan default offset jika tidak ada dari params
+    }
 
 
-    console.log(`[mangadexService.getMangaFeed] MEMANGGIL MangaDex API /manga/${mangaId}/feed dengan requestParams:`, JSON.stringify(requestParams)); // <-- Log Sebelum Axios
+    console.log(`[mangadexService.getMangaFeed] MEMANGGIL MangaDex API /manga/${mangaId}/feed dengan requestParams:`, JSON.stringify(requestParams));
     const response = await mangadexApi.get(`/manga/${mangaId}/feed`, { params: requestParams });
-    console.log(`[mangadexService.getMangaFeed] BERHASIL dapat response dari MangaDex API, Status: ${response.status}, Jumlah data: ${response.data.data.length}`); // <-- Log Setelah Axios
+    console.log(`[mangadexService.getMangaFeed] BERHASIL dapat response dari MangaDex API, Status: ${response.status}, Jumlah data: ${response.data.data.length}`);
 
     return response.data.data.map(chapter => {
         const scanGroup = chapter.relationships.find(rel => rel.type === 'scanlation_group');
@@ -139,16 +156,14 @@ const getMangaFeed = async (mangaId, params = {}) => {
         };
     });
   } catch (error) {
-    // Ini log yang penting jika panggilan Axios gagal
     const errorDetails = error.isAxiosError && error.response ? error.response.data : error.message;
     console.error(`[mangadexService.getMangaFeed] ERROR saat fetch dari MangaDex - Manga ID: ${mangaId}:`, errorDetails);
     console.error(`[mangadexService.getMangaFeed] ERROR STACK:`, error.stack);
-    throw new Error('Gagal mengambil daftar chapter.'); // Error ini yang akan dikirim ke controller
+    throw new Error('Gagal mengambil daftar chapter.');
   }
 };
 
 const getChapterPages = async (chapterId) => {
-  // ... (kode getChapterPages tetap sama seperti di Canvas sebelumnya) ...
   try {
     console.log(`[mangadexService.getChapterPages] Requesting pages for chapterId: ${chapterId}`);
     const serverResponse = await mangadexApi.get(`/at-home/server/${chapterId}`);
