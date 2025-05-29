@@ -5,8 +5,8 @@ const mangadexApi = axios.create({
 });
 
 // --- Bagian Cache ---
-const cache = new Map(); // Gunakan Map untuk menyimpan cache
-const CACHE_TTL_MS = 5 * 60 * 1000; // Cache Time-To-Live: 5 menit (dalam milidetik)
+const cache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 menit
 // --- Akhir Bagian Cache ---
 
 const searchManga = async (params = {}) => {
@@ -107,36 +107,29 @@ const getMangaFeed = async (mangaId, params = {}) => {
       'order[volume]': 'asc',
       'order[chapter]': 'asc',
       'includes[]': ['scanlation_group'],
-      // Tidak ada limit default di sini, biarkan MangaDex yang menentukan atau params dari controller
       offset: 0,
     };
 
-    // Tentukan limit efektif, prioritaskan dari params, lalu default ke 500 jika tidak ada
     let effectiveLimit = params.limit !== undefined ? Number(params.limit) : 500;
-    
-    // Batasi limit maksimal ke 500
     if (effectiveLimit > 500) {
         console.warn(`[mangadexService.getMangaFeed] Parameter limit (${effectiveLimit}) melebihi batas 500. Dibatasi menjadi 500.`);
         effectiveLimit = 500;
     }
-    // Pastikan limit adalah angka positif
     if (isNaN(effectiveLimit) || effectiveLimit <= 0) {
         console.warn(`[mangadexService.getMangaFeed] Parameter limit tidak valid (${params.limit}). Menggunakan default 10.`);
-        effectiveLimit = 10; // Atau nilai default lain yang aman jika input tidak valid
+        effectiveLimit = 10;
     }
 
     const requestParams = { 
         ...defaultParams, 
-        ...params, // Params dari controller bisa meng-override defaultParams
-        limit: effectiveLimit, // Gunakan effectiveLimit yang sudah divalidasi
+        ...params,
+        limit: effectiveLimit,
     };
-     // Pastikan offset valid jika dikirim dari controller
     if (params.offset !== undefined) {
         requestParams.offset = Number(params.offset) || 0;
     } else {
-        requestParams.offset = defaultParams.offset; // Gunakan default offset jika tidak ada dari params
+        requestParams.offset = defaultParams.offset;
     }
-
 
     console.log(`[mangadexService.getMangaFeed] MEMANGGIL MangaDex API /manga/${mangaId}/feed dengan requestParams:`, JSON.stringify(requestParams));
     const response = await mangadexApi.get(`/manga/${mangaId}/feed`, { params: requestParams });
@@ -169,10 +162,16 @@ const getChapterPages = async (chapterId) => {
     const serverResponse = await mangadexApi.get(`/at-home/server/${chapterId}`);
     console.log(`[mangadexService.getChapterPages] Got server response for chapterId: ${chapterId}`);
     const { baseUrl, chapter } = serverResponse.data;
-    const { hash, data, dataSaver } = chapter;
-    const pages = data.map(pageFile => `${baseUrl}/data/${hash}/${pageFile}`);
-    const pagesSaver = dataSaver.map(pageFile => `${baseUrl}/data-saver/${hash}/${pageFile}`);
-    return { id: chapterId, baseUrl, hash, pages, pagesSaver };
+    const { hash, data, dataSaver } = chapter; // 'data' dan 'dataSaver' adalah array NAMA FILE
+
+    // Pastikan kita mengembalikan NAMA FILE, bukan URL yang sudah dibangun
+    return { 
+        id: chapterId, 
+        baseUrl: baseUrl,         // Kirim baseUrl terpisah
+        hash: hash,               // Kirim hash terpisah
+        pages: data,              // Kirim array nama file untuk kualitas normal
+        pagesSaver: dataSaver     // Kirim array nama file untuk data saver
+    };
   } catch (error) {
      const errorDetails = error.isAxiosError && error.response ? error.response.data : error.message;
      console.error(`[mangadexService.getChapterPages] Error fetching pages for chapter ${chapterId}:`, errorDetails);
