@@ -33,14 +33,6 @@ const sendPasswordResetOTP = async (req, res, next) => {
         console.log('EMAIL_PASS length:', process.env.EMAIL_PASS?.length);
         console.log('==================');
         
-        // DEBUG: Log Supabase config
-        console.log('=== SUPABASE DEBUG ===');
-        console.log('SUPABASE_URL:', process.env.SUPABASE_URL?.substring(0, 30) + '...');
-        console.log('SUPABASE_SERVICE_KEY exists:', !!process.env.SUPABASE_SERVICE_KEY);
-        console.log('SUPABASE_SERVICE_KEY length:', process.env.SUPABASE_SERVICE_KEY?.length);
-        console.log('SUPABASE_SERVICE_KEY starts with:', process.env.SUPABASE_SERVICE_KEY?.substring(0, 30));
-        console.log('========================');
-        
         if (!email) {
             return res.status(400).json({ message: 'Email dibutuhkan.' });
         }
@@ -58,28 +50,7 @@ const sendPasswordResetOTP = async (req, res, next) => {
 
         // Generate OTP
         const otp = generateOTP();
-        const createdAt = new Date();
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 menit dari sekarang
-        
-        // Format waktu untuk email
-        const timeOptions = { 
-            timeZone: 'Asia/Jakarta', 
-            hour: '2-digit', 
-            minute: '2-digit',
-            second: '2-digit',
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        };
-        const startTime = createdAt.toLocaleString('id-ID', timeOptions);
-        const endTime = expiresAt.toLocaleString('id-ID', timeOptions);
-        
-        // Hitung progress untuk visual indicator
-        const currentMinute = createdAt.getMinutes();
-        const progressBars = [];
-        for(let i = 0; i < 10; i++) {
-            progressBars.push(i < 10 ? '🟩' : '⬜');
-        }
 
         // Simpan OTP ke database (buat tabel otp_codes jika belum ada)
         const { error: insertError } = await supabase
@@ -129,102 +100,18 @@ const sendPasswordResetOTP = async (req, res, next) => {
                             <h1 style="color: #ffffff; font-size: 36px; margin: 0; letter-spacing: 8px; font-family: 'Courier New', monospace;">${otp}</h1>
                         </div>
                         
-                        <!-- Timer Information Box -->
-                        <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); color: white; padding: 25px; border-radius: 10px; margin: 25px 0; text-align: center;">
-                            <h3 style="margin: 0 0 20px 0; font-size: 20px;">⏰ INFORMASI WAKTU</h3>
-                            
-                            <!-- Time Details -->
-                            <div style="background: rgba(255,255,255,0.2); padding: 20px; border-radius: 8px; margin: 15px 0;">
-                                <table style="width: 100%; color: white; font-size: 14px;">
-                                    <tr>
-                                        <td style="padding: 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.3);">
-                                            <strong>📅 Kode Dikirim:</strong>
-                                        </td>
-                                        <td style="padding: 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.3);">
-                                            ${startTime}
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding: 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.3);">
-                                            <strong>⏰ Berlaku Hingga:</strong>
-                                        </td>
-                                        <td style="padding: 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.3);">
-                                            ${endTime}
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding: 8px; text-align: left;">
-                                            <strong>⏳ Durasi Valid:</strong>
-                                        </td>
-                                        <td style="padding: 8px; text-align: right;">
-                                            <span style="font-size: 18px; font-weight: bold;">10 MENIT</span>
-                                        </td>
-                                    </tr>
-                                </table>
-                            </div>
-                            
-                            <!-- Visual Time Indicator -->
-                            <div style="margin: 20px 0;">
-                                <p style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">Waktu tersisa (visual):</p>
-                                <div style="font-size: 20px; letter-spacing: 2px;">
-                                    🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩
-                                </div>
-                                <p style="margin: 10px 0 0 0; font-size: 12px; opacity: 0.8;">
-                                    🟩 = Menit tersisa | ⬜ = Waktu habis
-                                </p>
-                            </div>
-                            
-                            <!-- Urgency Message -->
-                            <div style="background: rgba(255,255,255,0.3); padding: 15px; border-radius: 8px; margin: 15px 0;">
-                                <p style="margin: 0; font-size: 16px; font-weight: bold;">
-                                    🚨 SEGERA GUNAKAN KODE INI!
-                                </p>
-                                <p style="margin: 5px 0 0 0; font-size: 13px;">
-                                    Jangan tunggu terlalu lama - kode akan otomatis expire!
-                                </p>
-                            </div>
-                        </div>
-                        
-                        <!-- Step by Step Instructions -->
-                        <div style="background-color: #e3f2fd; border: 1px solid #bbdefb; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                            <h4 style="margin: 0 0 15px 0; color: #1976d2; font-size: 16px;">📋 Cara Menggunakan Kode:</h4>
-                            <ol style="margin: 0; padding-left: 20px; color: #1565c0;">
-                                <li style="margin-bottom: 8px;"><strong>Copy kode OTP</strong> di atas</li>
-                                <li style="margin-bottom: 8px;"><strong>Buka aplikasi/website</strong> KomikIn</li>
-                                <li style="margin-bottom: 8px;"><strong>Paste kode</strong> pada form verifikasi</li>
-                                <li style="margin-bottom: 8px;"><strong>Masukkan password baru</strong> Anda</li>
-                                <li><strong>Selesai!</strong> Password berhasil direset</li>
-                            </ol>
-                        </div>
-                        
-                        <!-- Warning Box -->
+                        <!-- Important Info -->
                         <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
                             <p style="margin: 0; color: #856404; font-size: 14px;">
-                                ⚠️ <strong>PENTING:</strong> Kode ini hanya berlaku <strong>10 menit</strong> sejak email dikirim (${startTime}).
-                                Setelah waktu habis, Anda perlu request kode baru.
+                                ⏰ <strong>Kode ini berlaku selama 10 menit</strong> sejak email ini dikirim.
                             </p>
                         </div>
                         
                         <div style="background-color: #d1ecf1; border: 1px solid #bee5eb; padding: 15px; border-radius: 8px; margin: 20px 0;">
                             <p style="margin: 0; color: #0c5460; font-size: 14px;">
                                 🔒 <strong>Keamanan:</strong> Jangan bagikan kode ini kepada siapapun. 
-                                Tim KomikIn tidak akan pernah meminta kode verifikasi Anda melalui telepon atau chat.
+                                Tim KomikIn tidak akan pernah meminta kode verifikasi Anda.
                             </p>
-                        </div>
-                        
-                        <!-- Quick Copy Section -->
-                        <div style="text-align: center; margin: 30px 0;">
-                            <div style="background: #f8f9fa; border: 2px dashed #667eea; padding: 20px; border-radius: 8px;">
-                                <p style="margin: 0 0 10px 0; color: #333; font-size: 14px;">
-                                    💡 <strong>Quick Copy:</strong>
-                                </p>
-                                <div style="background: white; padding: 10px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold; letter-spacing: 3px; color: #667eea;">
-                                    ${otp}
-                                </div>
-                                <p style="margin: 10px 0 0 0; color: #666; font-size: 12px;">
-                                    Tap/klik untuk select, lalu copy
-                                </p>
-                            </div>
                         </div>
                         
                         <p style="color: #666; font-size: 14px; line-height: 1.5;">
