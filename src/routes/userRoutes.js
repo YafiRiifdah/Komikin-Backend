@@ -3,7 +3,20 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
 
-// Semua rute di bawah ini akan dilindungi oleh middleware 'protect'
+// ========================================
+// ROUTES TANPA MIDDLEWARE PROTECT
+// (Untuk user yang belum login)
+// ========================================
+
+// Rute Reset Password dengan OTP
+router.post('/send-reset-otp', userController.sendPasswordResetOTP);
+router.post('/verify-reset-otp', userController.verifyPasswordResetOTP);
+router.post('/reset-password', userController.resetPasswordWithOTP);
+
+// ========================================
+// MIDDLEWARE PROTECT
+// Semua rute di bawah ini dilindungi authentication
+// ========================================
 router.use(protect);
 
 // Rute Bookmark
@@ -20,7 +33,7 @@ router.route('/history')
 // Rute Profil Pengguna
 router.patch('/profile', userController.updateProfile);
 
-// Rute Ganti Password
+// Rute Ganti Password (untuk user yang sudah login)
 router.patch('/password', userController.updatePassword);
 
 module.exports = router;

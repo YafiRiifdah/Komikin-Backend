@@ -89,6 +89,45 @@ const getMangaFeed = async (req, res, next) => {
         next(error);
     }
 };
+const searchMangaByTitleAndGenre = async (req, res, next) => {
+    try {
+        const { title, genreIds } = req.query;
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 20;
+        const offset = (page - 1) * limit;
+        
+        if (!title || !genreIds) {
+            return res.status(400).json({ 
+                message: 'Parameter "title" dan "genreIds" dibutuhkan untuk pencarian kombinasi.' 
+            });
+        }
+        
+        const searchParams = {
+            title,
+            'includedTags[]': genreIds.split(','),
+            limit,
+            offset
+        };
+        
+        const mangaData = await mangadxService.searchManga(searchParams);
+        const totalItems = mangaData.total;
+        const totalPages = Math.ceil(totalItems / limit);
+        
+        res.json({
+            message: "Hasil pencarian manga berdasarkan judul dan genre.",
+            data: mangaData.results,
+            pagination: {
+                currentPage: page,
+                totalPages: totalPages,
+                itemsPerPage: limit,
+                totalItems: totalItems,
+                offsetFromAPI: mangaData.offset
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
 
 module.exports = {
   getLatestManga,
@@ -96,5 +135,6 @@ module.exports = {
   searchMangaByTitle,
   getGenresList,
   searchMangaByGenre,
+   searchMangaByTitleAndGenre,
   getMangaFeed,
 };

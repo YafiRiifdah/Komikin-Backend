@@ -1,6 +1,310 @@
 const supabase = require('../config/supabaseClient');
 const mangadexService = require('../services/mangadexService');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
+
+// Force load dotenv
+require('dotenv').config();
+
+// Konfigurasi Email (contoh menggunakan Gmail)
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER, // email Anda
+        pass: process.env.EMAIL_PASS  // app password Gmail
+    }
+});
+
+// Generate OTP 6 digit
+const generateOTP = () => {
+    return crypto.randomInt(100000, 999999).toString();
+};
+
+// Mengirim OTP ke Email untuk Reset Password
+const sendPasswordResetOTP = async (req, res, next) => {
+    try {
+        const { email } = req.body;
+        
+        // DEBUG: Log environment variables
+        console.log('=== EMAIL DEBUG ===');
+        console.log('EMAIL_USER:', process.env.EMAIL_USER);
+        console.log('EMAIL_PASS exists:', !!process.env.EMAIL_PASS);
+        console.log('EMAIL_PASS length:', process.env.EMAIL_PASS?.length);
+        console.log('==================');
+        
+        if (!email) {
+            return res.status(400).json({ message: 'Email dibutuhkan.' });
+        }
+
+        // Cek apakah email ada di database
+        const { data: user, error: findError } = await supabase
+            .from('users')
+            .select('id, email, username')
+            .eq('email', email.toLowerCase())
+            .single();
+
+        if (findError || !user) {
+            return res.status(404).json({ message: 'Email tidak ditemukan.' });
+        }
+
+        // Generate OTP
+        const otp = generateOTP();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 menit dari sekarang
+
+        // Simpan OTP ke database (buat tabel otp_codes jika belum ada)
+        const { error: insertError } = await supabase
+            .from('otp_codes')
+            .upsert({
+                user_id: user.id,
+                email: email.toLowerCase(),
+                otp_code: otp,
+                purpose: 'password_reset',
+                expires_at: expiresAt.toISOString(),
+                is_used: false,
+                created_at: new Date().toISOString()
+            }, {
+                onConflict: 'user_id,purpose'
+            });
+
+        if (insertError) {
+            console.error("Error saving OTP:", insertError);
+            throw insertError;
+        }
+
+        // Kirim email OTP
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: '🔐 Kode Verifikasi Reset Password - KomikIn',
+            html: `
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8f9fa; padding: 20px;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+                        <h1 style="color: white; margin: 0; font-size: 24px;">🎌 KomikIn</h1>
+                        <p style="color: #e8f4fd; margin: 10px 0 0 0; font-size: 16px;">Reset Password Account</p>
+                    </div>
+                    
+                    <!-- Content -->
+                    <div style="background-color: white; padding: 40px 30px; border-radius: 0 0 10px 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                        <h2 style="color: #333; margin-top: 0; font-size: 20px;">Halo, Manga Lover! 👋</h2>
+                        
+                        <p style="color: #555; line-height: 1.6; font-size: 16px;">
+                            Kami menerima permintaan untuk mereset password akun KomikIn Anda. 
+                            Gunakan kode verifikasi berikut untuk melanjutkan:
+                        </p>
+                        
+                        <!-- OTP Code Box -->
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 25px; text-align: center; margin: 30px 0; border-radius: 10px; border: 3px dashed #667eea;">
+                            <p style="color: white; margin: 0 0 10px 0; font-size: 14px; font-weight: bold;">KODE VERIFIKASI</p>
+                            <h1 style="color: #ffffff; font-size: 36px; margin: 0; letter-spacing: 8px; font-family: 'Courier New', monospace;">${otp}</h1>
+                        </div>
+                        
+                        <!-- Important Info -->
+                        <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                            <p style="margin: 0; color: #856404; font-size: 14px;">
+                                ⏰ <strong>Kode ini berlaku selama 10 menit</strong> sejak email ini dikirim.
+                            </p>
+                        </div>
+                        
+                        <div style="background-color: #d1ecf1; border: 1px solid #bee5eb; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                            <p style="margin: 0; color: #0c5460; font-size: 14px;">
+                                🔒 <strong>Keamanan:</strong> Jangan bagikan kode ini kepada siapapun. 
+                                Tim KomikIn tidak akan pernah meminta kode verifikasi Anda.
+                            </p>
+                        </div>
+                        
+                        <p style="color: #666; font-size: 14px; line-height: 1.5;">
+                            Jika Anda tidak meminta reset password, abaikan email ini. 
+                            Akun Anda tetap aman dan tidak ada perubahan yang dibuat.
+                        </p>
+                    </div>
+                    
+                    <!-- Footer -->
+                    <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">
+                        <p style="margin: 0;">📧 Email otomatis dari sistem KomikIn</p>
+                        <p style="margin: 5px 0 0 0;">© 2024 KomikIn - Platform Baca Manga Terbaik</p>
+                        <div style="margin-top: 15px;">
+                            <span style="margin: 0 10px;">🌟</span>
+                            <span style="color: #667eea; font-weight: bold;">Happy Reading!</span>
+                            <span style="margin: 0 10px;">🌟</span>
+                        </div>
+                    </div>
+                </div>
+            `
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        res.status(200).json({ 
+            message: 'Kode OTP telah dikirim ke email Anda.',
+            email: email 
+        });
+
+    } catch (error) {
+        console.error("Send OTP error:", error);
+        next(error);
+    }
+};
+
+// Verifikasi OTP untuk Reset Password
+const verifyPasswordResetOTP = async (req, res, next) => {
+    try {
+        const { email, otp } = req.body;
+
+        if (!email || !otp) {
+            return res.status(400).json({ message: 'Email dan kode OTP dibutuhkan.' });
+        }
+
+        // Cari OTP yang valid
+        const { data: otpRecord, error: findError } = await supabase
+            .from('otp_codes')
+            .select('*')
+            .eq('email', email.toLowerCase())
+            .eq('otp_code', otp)
+            .eq('purpose', 'password_reset')
+            .eq('is_used', false)
+            .gt('expires_at', new Date().toISOString())
+            .single();
+
+        if (findError || !otpRecord) {
+            return res.status(400).json({ 
+                message: 'Kode OTP tidak valid atau sudah kadaluarsa.' 
+            });
+        }
+
+        // Mark OTP sebagai terverifikasi (tapi belum digunakan)
+        const { error: updateError } = await supabase
+            .from('otp_codes')
+            .update({ 
+                verified_at: new Date().toISOString() 
+            })
+            .eq('id', otpRecord.id);
+
+        if (updateError) throw updateError;
+
+        res.status(200).json({ 
+            message: 'Kode OTP berhasil diverifikasi. Silakan masukkan password baru.',
+            token: otpRecord.id, // Gunakan ID sebagai token sementara
+            email: email
+        });
+
+    } catch (error) {
+        console.error("Verify OTP error:", error);
+        next(error);
+    }
+};
+
+// Reset Password dengan OTP (menggantikan updatePassword lama)
+const resetPasswordWithOTP = async (req, res, next) => {
+    try {
+        const { email, token, newPassword } = req.body;
+
+        if (!email || !token || !newPassword) {
+            return res.status(400).json({ 
+                message: 'Email, token, dan password baru dibutuhkan.' 
+            });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({ 
+                message: 'Password baru minimal 6 karakter.' 
+            });
+        }
+
+        // Verifikasi token OTP
+        const { data: otpRecord, error: findError } = await supabase
+            .from('otp_codes')
+            .select('*')
+            .eq('id', token)
+            .eq('email', email.toLowerCase())
+            .eq('purpose', 'password_reset')
+            .eq('is_used', false)
+            .not('verified_at', 'is', null)
+            .gt('expires_at', new Date().toISOString())
+            .single();
+
+        if (findError || !otpRecord) {
+            return res.status(400).json({ 
+                message: 'Token tidak valid atau sudah kadaluarsa.' 
+            });
+        }
+
+        // Hash password baru
+        const salt = await bcrypt.genSalt(10);
+        const newPasswordHash = await bcrypt.hash(newPassword, salt);
+
+        // Update password user
+        const { error: updateError } = await supabase
+            .from('users')
+            .update({ 
+                password_hash: newPasswordHash,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', otpRecord.user_id);
+
+        if (updateError) throw updateError;
+
+        // Mark OTP sebagai sudah digunakan
+        await supabase
+            .from('otp_codes')
+            .update({ 
+                is_used: true,
+                used_at: new Date().toISOString()
+            })
+            .eq('id', otpRecord.id);
+
+        res.status(200).json({ 
+            message: 'Password berhasil direset!' 
+        });
+
+    } catch (error) {
+        console.error("Reset password error:", error);
+        next(error);
+    }
+};
+
+// Update Password (untuk user yang sudah login - tetap pakai current password)
+const updatePassword = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const { currentPassword, newPassword } = req.body;
+        
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ 
+                message: 'Password saat ini dan password baru dibutuhkan.' 
+            });
+        }
+        
+        if (newPassword.length < 6) {
+            return res.status(400).json({ 
+                message: 'Password baru minimal 6 karakter.' 
+            });
+        }
+        
+        const { data: user, error: findError } = await supabase
+            .from('users').select('password_hash').eq('id', userId).single();
+            
+        if (findError) throw findError;
+        if (!user) return res.status(404).json({ message: 'User tidak ditemukan.' });
+        
+        const isMatch = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!isMatch) return res.status(401).json({ message: 'Password saat ini salah.' });
+        
+        const salt = await bcrypt.genSalt(10);
+        const new_password_hash = await bcrypt.hash(newPassword, salt);
+        
+        const { error: updateError } = await supabase
+            .from('users').update({ password_hash: new_password_hash }).eq('id', userId);
+            
+        if (updateError) throw updateError;
+        
+        res.status(200).json({ message: 'Password berhasil diperbarui.' });
+    } catch (error) {
+        console.error("Update password error:", error);
+        next(error);
+    }
+};
 
 // Menambah Bookmark
 const addBookmark = async (req, res, next) => {
@@ -107,14 +411,11 @@ const deleteBookmark = async (req, res, next) => {
             .from('bookmarks')
             .delete()
             .match({ user_id: userId, manga_id: mangaId })
-            .select(); // Untuk mendapatkan data yang dihapus
+            .select();
 
-        // Perbaikan: Supabase delete() dengan select() mengembalikan data yang dihapus,
-        // jadi kita cek apakah 'data' ada dan tidak kosong.
-        // 'count' mungkin tidak selalu diisi dengan benar oleh semua versi supabase-js untuk delete.
         console.log("DEBUG: Respons Supabase Delete -> Error:", error, "Data (dihapus):", data);
         if (error) throw error;
-        if (!data || data.length === 0) { // Jika tidak ada data yang dikembalikan, berarti tidak ada yang cocok untuk dihapus
+        if (!data || data.length === 0) {
             return res.status(404).json({ message: 'Bookmark tidak ditemukan untuk dihapus.' });
         }
         res.status(200).json({ message: 'Bookmark berhasil dihapus.', deleted: data });
@@ -181,7 +482,7 @@ const getHistory = async (req, res, next) => {
              try {
                 const mangaDetailsData = await mangadexService.searchManga({ 'ids[]': mangaIds, limit: mangaIds.length });
                 mangaDetailsData.results.forEach(manga => { mangaDetailsMap[manga.id] = manga; });
-            } catch (mangadexErr) { console.error("Error fetching manga details for history:", mangadexErr.message); }
+            } catch (mangadexErr) { console.error("Error fetching manga details for history:", mangadxErr.message); }
         }
         const enrichedHistory = historyFromSupabase.map(h => {
             const details = mangaDetailsMap[h.manga_id];
@@ -221,37 +522,10 @@ const updateProfile = async (req, res, next) => {
     }
 };
 
-// Mengupdate password pengguna
-const updatePassword = async (req, res, next) => {
-    try {
-        const userId = req.user.id;
-        const { currentPassword, newPassword } = req.body;
-        if (!currentPassword || !newPassword) {
-            return res.status(400).json({ message: 'Password saat ini dan password baru dibutuhkan.' });
-        }
-        if (newPassword.length < 6) {
-            return res.status(400).json({ message: 'Password baru minimal 6 karakter.' });
-        }
-        const { data: user, error: findError } = await supabase
-            .from('users').select('password_hash').eq('id', userId).single();
-        if (findError) throw findError;
-        if (!user) return res.status(404).json({ message: 'User tidak ditemukan.' });
-        const isMatch = await bcrypt.compare(currentPassword, user.password_hash);
-        if (!isMatch) return res.status(401).json({ message: 'Password saat ini salah.' });
-        const salt = await bcrypt.genSalt(10);
-        const new_password_hash = await bcrypt.hash(newPassword, salt);
-        const { error: updateError } = await supabase
-            .from('users').update({ password_hash: new_password_hash }).eq('id', userId);
-        if (updateError) throw updateError;
-        res.status(200).json({ message: 'Password berhasil diperbarui.' });
-    } catch (error) {
-        console.error("Update password error:", error);
-        next(error);
-    }
-};
-
 module.exports = {
     addBookmark, getBookmarks, deleteBookmark,
     addHistory, getHistory,
     updateProfile, updatePassword,
+    // Fungsi baru untuk reset password dengan OTP
+    sendPasswordResetOTP, verifyPasswordResetOTP, resetPasswordWithOTP,
 };

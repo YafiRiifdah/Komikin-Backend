@@ -1,6 +1,4 @@
 const jwt = require('jsonwebtoken');
-// const supabase = require('../config/supabaseClient'); // Tidak perlu Supabase di sini untuk verifikasi token dasar
-
 const protect = async (req, res, next) => {
     let token;
 
@@ -13,8 +11,6 @@ const protect = async (req, res, next) => {
             req.user = {
                 id: decoded.userId,
                 email: decoded.email
-                // Anda bisa mengambil data user lengkap dari DB di sini jika perlu,
-                // tapi untuk banyak kasus, userId dari token sudah cukup.
             };
             next();
         } catch (error) {
