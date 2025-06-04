@@ -3,22 +3,158 @@ const mangadexService = require('../services/mangadexService');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const net = require('net');
 
 // Force load dotenv
 require('dotenv').config();
 
-// Konfigurasi Email (contoh menggunakan Gmail)
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER, // email Anda
-        pass: process.env.EMAIL_PASS  // app password Gmail
+// Konfigurasi Email - TEMPORARY: Pakai Ethereal untuk bypass network block
+const createTransporter = async () => {
+    // Coba Gmail dulu
+    try {
+        const gmailTransporter = nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 587,
+            secure: false,
+            auth: {
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS
+            },
+            tls: { rejectUnauthorized: false },
+            connectionTimeout: 10000  // 10 detik timeout
+        });
+        
+        await gmailTransporter.verify();
+        console.log('✅ Gmail SMTP ready');
+        return gmailTransporter;
+    } catch (error) {
+        console.log('❌ Gmail SMTP blocked, using Ethereal fallback');
+        
+        // Fallback ke Ethereal (free testing email)
+        const testAccount = await nodemailer.createTestAccount();
+        console.log('📧 Ethereal Test Account:', testAccount.user);
+        
+        return nodemailer.createTransport({
+            host: 'smtp.ethereal.email',
+            port: 587,
+            secure: false,
+            auth: {
+                user: testAccount.user,
+                pass: testAccount.pass
+            }
+        });
     }
+};
+
+// Initialize transporter
+let transporter;
+createTransporter().then(t => {
+    transporter = t;
+}).catch(error => {
+    console.error('❌ All SMTP failed:', error.message);
 });
+
+// Helper function untuk test port
+function testPort(host, port, timeout = 5000) {
+    return new Promise((resolve, reject) => {
+        const socket = new net.Socket();
+        
+        socket.setTimeout(timeout);
+        
+        socket.on('connect', () => {
+            socket.destroy();
+            resolve(true);
+        });
+        
+        socket.on('timeout', () => {
+            socket.destroy();
+            resolve(false);
+        });
+        
+        socket.on('error', (err) => {
+            socket.destroy();
+            resolve(false);
+        });
+        
+        socket.connect(port, host);
+    });
+}
 
 // Generate OTP 6 digit
 const generateOTP = () => {
     return crypto.randomInt(100000, 999999).toString();
+};
+
+// TEST ENDPOINT: Test SMTP Connection
+const testSMTPConnection = async (req, res, next) => {
+    const testConnections = [
+        { host: 'smtp.gmail.com', port: 587, name: 'Gmail Port 587' },
+        { host: 'smtp.gmail.com', port: 465, name: 'Gmail Port 465' },
+        { host: '8.8.8.8', port: 53, name: 'DNS Google' }
+    ];
+    
+    const results = [];
+    
+    for (const test of testConnections) {
+        try {
+            const isOpen = await testPort(test.host, test.port);
+            results.push({
+                name: test.name,
+                host: test.host,
+                port: test.port,
+                status: isOpen ? '✅ OPEN' : '❌ BLOCKED',
+                accessible: isOpen
+            });
+        } catch (error) {
+            results.push({
+                name: test.name,
+                host: test.host,
+                port: test.port,
+                status: '❌ ERROR',
+                error: error.message,
+                accessible: false
+            });
+        }
+    }
+    
+    res.json({
+        message: 'Network connectivity test results',
+        results,
+        recommendation: results.find(r => r.accessible) ? 
+            'At least one SMTP port is accessible' : 
+            'All SMTP ports blocked - check firewall/ISP'
+    });
+};
+
+// TEST ENDPOINT: Test Email Authentication (PUBLIC - No auth required)
+const testEmailAuth = async (req, res, next) => {
+    try {
+        console.log('Testing email configuration...');
+        console.log('EMAIL_USER:', process.env.EMAIL_USER);
+        console.log('EMAIL_PASS length:', process.env.EMAIL_PASS?.length);
+        
+        // Test koneksi transporter
+        await transporter.verify();
+        
+        res.json({
+            success: true,
+            message: 'SMTP configuration valid',
+            user: process.env.EMAIL_USER,
+            config: {
+                host: 'smtp.gmail.com',
+                port: 587,
+                secure: false
+            }
+        });
+    } catch (error) {
+        console.error('SMTP Test Error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            code: error.code,
+            user: process.env.EMAIL_USER
+        });
+    }
 };
 
 // Mengirim OTP ke Email untuk Reset Password
@@ -31,6 +167,7 @@ const sendPasswordResetOTP = async (req, res, next) => {
         console.log('EMAIL_USER:', process.env.EMAIL_USER);
         console.log('EMAIL_PASS exists:', !!process.env.EMAIL_PASS);
         console.log('EMAIL_PASS length:', process.env.EMAIL_PASS?.length);
+        console.log('SMTP Config: smtp.gmail.com:587');
         console.log('==================');
         
         if (!email) {
@@ -74,9 +211,9 @@ const sendPasswordResetOTP = async (req, res, next) => {
 
         // Kirim email OTP
         const mailOptions = {
-            from: process.env.EMAIL_USER,
+            from: `"KomikIn Support" <${process.env.EMAIL_USER}>`,
             to: email,
-            subject: '🔐 Kode Verifikasi Reset Password - KomikIn',
+            subject: 'Kode Verifikasi Reset Password - KomikIn',  // Hilangkan emoji
             html: `
                 <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8f9fa; padding: 20px;">
                     <!-- Header -->
@@ -134,7 +271,14 @@ const sendPasswordResetOTP = async (req, res, next) => {
             `
         };
 
-        await transporter.sendMail(mailOptions);
+        console.log('Attempting to send email to:', email);
+        const result = await transporter.sendMail(mailOptions);
+        console.log('✅ Email sent successfully');
+        
+        // Jika pakai Ethereal, tampilkan preview URL
+        if (result.messageId && result.messageId.includes('ethereal')) {
+            console.log('📧 Preview URL:', nodemailer.getTestMessageUrl(result));
+        }
 
         res.status(200).json({ 
             message: 'Kode OTP telah dikirim ke email Anda.',
@@ -143,6 +287,7 @@ const sendPasswordResetOTP = async (req, res, next) => {
 
     } catch (error) {
         console.error("Send OTP error:", error);
+        console.error("ERROR STACK:", error);
         next(error);
     }
 };
@@ -528,4 +673,6 @@ module.exports = {
     updateProfile, updatePassword,
     // Fungsi baru untuk reset password dengan OTP
     sendPasswordResetOTP, verifyPasswordResetOTP, resetPasswordWithOTP,
+    // Fungsi test untuk debugging
+    testSMTPConnection, testEmailAuth,
 };
